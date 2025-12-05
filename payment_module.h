@@ -4,6 +4,9 @@
 #include <string>
 #include <map>
 #include <memory>
+#include <vector>
+#include <fstream>
+#include <mutex>
 #include "payment_config.h"
 
 // 支付结果枚举
@@ -18,6 +21,27 @@ enum class PaymentResult {
 enum class PaymentType {
     WECHAT,
     ALIPAY
+};
+
+// 日志级别枚举
+enum class LogLevel {
+    DEBUG,
+    INFO,
+    WARNING,
+    ERROR
+};
+
+// 日志接口
+class Logger {
+public:
+    virtual ~Logger() = default;
+    virtual void log(LogLevel level, const std::string& message) = 0;
+};
+
+// 控制台日志实现
+class ConsoleLogger : public Logger {
+public:
+    void log(LogLevel level, const std::string& message) override;
 };
 
 // 支付请求结构体
@@ -46,6 +70,51 @@ public:
     virtual PaymentResponse process_payment(const PaymentRequest& request) = 0;
     virtual PaymentResponse query_payment_status(const std::string& transaction_id) = 0;
     virtual PaymentResponse refund_payment(const std::string& transaction_id, double amount) = 0;
+    
+    // 设置日志器
+    void set_logger(std::shared_ptr<Logger> logger) { logger_ = logger; }
+    
+    // 输入验证
+    static bool validate_amount(double amount);
+    static bool validate_order_id(const std::string& order_id);
+    static bool validate_user_id(const std::string& user_id);
+    static bool validate_description(const std::string& description);
+
+protected:
+    std::shared_ptr<Logger> logger_;
+};
+
+// 密钥管理类
+class KeyManager {
+public:
+    static KeyManager& instance();
+    
+    // 加载密钥
+    bool load_private_key(const std::string& key_content);
+    bool load_public_key(const std::string& key_content);
+    bool load_private_key_from_file(const std::string& file_path);
+    bool load_public_key_from_file(const std::string& file_path);
+    
+    // 获取密钥
+    std::string get_private_key() const { return private_key_; }
+    std::string get_public_key() const { return public_key_; }
+    
+    // RSA签名
+    std::string rsa_sign(const std::string& data, const std::string& algorithm = "RSA2");
+    bool rsa_verify(const std::string& data, const std::string& signature, const std::string& algorithm = "RSA2");
+    
+    // 生成新的密钥对
+    bool generate_rsa_keypair(std::string& private_key, std::string& public_key);
+
+private:
+    KeyManager() = default;
+    ~KeyManager() = default;
+    KeyManager(const KeyManager&) = delete;
+    KeyManager& operator=(const KeyManager&) = delete;
+    
+    std::string private_key_;
+    std::string public_key_;
+    mutable std::mutex mutex_;
 };
 
 // 微信支付实现
@@ -66,6 +135,7 @@ private:
     std::string build_xml_request(const std::map<std::string, std::string>& params);
     std::map<std::string, std::string> parse_xml_response(const std::string& xml);
     std::string make_http_request(const std::string& url, const std::string& data);
+    bool verify_ssl_ = true; // 默认启用SSL验证
 };
 
 // 支付宝支付实现
@@ -86,6 +156,7 @@ private:
     std::string build_request_params(const std::map<std::string, std::string>& params);
     std::map<std::string, std::string> parse_json_response(const std::string& json);
     std::string make_http_request(const std::string& url, const std::string& data);
+    bool verify_ssl_ = true; // 默认启用SSL验证
 };
 
 // 支付工厂类
@@ -105,10 +176,14 @@ public:
     
     void set_wechat_config(const std::string& app_id, const std::string& mch_id, const std::string& api_key);
     void set_alipay_config(const std::string& app_id, const std::string& private_key, const std::string& public_key);
+    
+    // 设置日志器
+    void set_logger(std::shared_ptr<Logger> logger);
 
 private:
     std::unique_ptr<PaymentInterface> wechat_payment_;
     std::unique_ptr<PaymentInterface> alipay_payment_;
+    std::shared_ptr<Logger> logger_;
 };
 
 #endif // PAYMENT_MODULE_H

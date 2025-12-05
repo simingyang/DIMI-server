@@ -3,5 +3,8 @@
 *.o
 *.obj
 *.out
-payment_example
+demo_security
+simple_test
+test_rsa
+test_security
 ```
